@@ -16,7 +16,7 @@ At least one LLM API key (free options available)
 
 🛠️ Setup
 1. Clone the Repository
-bashgit clone https://github.com/yourusername/reddit-user-persona.git
+bashgit clone https://github.com/Sritankar/assingment-task.git
 cd reddit-user-persona
 2. Install Dependencies
 bashpip install -r requirements.txt
