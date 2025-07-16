@@ -2,21 +2,31 @@ import json
 import requests
 from typing import Dict, List
 from .config import Config
-import google.generativeai as genai
-from groq import Groq
+import os
 
 class PersonaGenerator:
     def __init__(self):
-        if Config.USE_GEMINI:
+        # Check environment variables properly
+        self.USE_GEMINI = os.getenv('USE_GEMINI', 'false').lower() == 'true'
+        self.USE_GROQ = os.getenv('USE_GROQ', 'false').lower() == 'true'
+        self.USE_LOCAL_LLM = os.getenv('USE_LOCAL_LLM', 'false').lower() == 'true'
+        self.USE_HUGGINGFACE = os.getenv('USE_HUGGINGFACE', 'false').lower() == 'true'
+        
+        if self.USE_GEMINI:
             # Google's Gemini API (free tier available)
-            genai.configure(api_key=Config.GEMINI_API_KEY)
+            import google.generativeai as genai
+            genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
             self.model = genai.GenerativeModel('gemini-pro')
-        elif Config.USE_GROQ:
+        elif self.USE_GROQ:
             # Groq API (free tier available)
-            self.groq_client = Groq(api_key=Config.GROQ_API_KEY)
-        elif Config.USE_LOCAL_LLM:
+            from groq import Groq
+            self.groq_client = Groq(api_key=os.getenv('GROQ_API_KEY'))
+        elif self.USE_LOCAL_LLM:
             # Local LLM (completely free)
-            self.llm_endpoint = Config.LOCAL_LLM_ENDPOINT
+            self.llm_endpoint = os.getenv('LOCAL_LLM_ENDPOINT', 'http://localhost:11434/api/generate')
+        elif self.USE_HUGGINGFACE:
+            # Hugging Face API
+            self.hf_api_key = os.getenv('HUGGINGFACE_API_KEY')
     
     def generate_persona(self, user_data: Dict) -> Dict:
         """Generate user persona using LLM based on scraped data."""
@@ -24,11 +34,17 @@ class PersonaGenerator:
         # Prepare content for analysis
         content_summary = self._prepare_content_summary(user_data)
         
-        # Generate persona using LLM
-        if Config.USE_LOCAL_LLM:
+        # Generate persona using appropriate LLM
+        if self.USE_GEMINI:
+            persona = self._generate_with_gemini(content_summary)
+        elif self.USE_GROQ:
+            persona = self._generate_with_groq(content_summary)
+        elif self.USE_LOCAL_LLM:
             persona = self._generate_with_local_llm(content_summary)
+        elif self.USE_HUGGINGFACE:
+            persona = self._generate_with_huggingface(content_summary)
         else:
-            persona = self._generate_with_openai(content_summary)
+            raise ValueError("No LLM configured. Please set one of USE_GEMINI, USE_GROQ, USE_LOCAL_LLM, or USE_HUGGINGFACE to true in your .env file")
         
         # Add citations
         persona_with_citations = self._add_citations(persona, user_data)
@@ -51,9 +67,77 @@ class PersonaGenerator:
         
         return summary
     
-    def _generate_with_openai(self, content_summary: str) -> Dict:
-        """Generate persona using OpenAI API."""
-        prompt = f"""Analyze the following Reddit user data and create a detailed user persona.
+    def _generate_with_gemini(self, content_summary: str) -> Dict:
+        """Generate persona using Google Gemini API."""
+        prompt = self._get_analysis_prompt(content_summary)
+        
+        response = self.model.generate_content(prompt)
+        
+        # Parse the response - Gemini might return plain text
+        try:
+            return json.loads(response.text)
+        except:
+            # If not JSON, create a structured response
+            return {"analysis": response.text}
+    
+    def _generate_with_groq(self, content_summary: str) -> Dict:
+        """Generate persona using Groq API."""
+        prompt = self._get_analysis_prompt(content_summary)
+        
+        chat_completion = self.groq_client.chat.completions.create(
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are an expert at analyzing online behavior and creating detailed user personas. Always respond with valid JSON."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            model="mixtral-8x7b-32768",  # Free model
+            temperature=0.7,
+            max_tokens=1500
+        )
+        
+        return json.loads(chat_completion.choices[0].message.content)
+    
+    def _generate_with_local_llm(self, content_summary: str) -> Dict:
+        """Generate persona using local LLM (Ollama)."""
+        import ollama
+        
+        prompt = self._get_analysis_prompt(content_summary)
+        
+        response = ollama.chat(model=os.getenv('LOCAL_LLM_MODEL', 'llama2'), messages=[
+            {
+                'role': 'user',
+                'content': prompt
+            }
+        ])
+        
+        try:
+            return json.loads(response['message']['content'])
+        except:
+            return {"analysis": response['message']['content']}
+    
+    def _generate_with_huggingface(self, content_summary: str) -> Dict:
+        """Generate persona using Hugging Face Inference API."""
+        API_URL = "https://api-inference.huggingface.co/models/mistralai/Mixtral-8x7B-Instruct-v0.1"
+        headers = {"Authorization": f"Bearer {self.hf_api_key}"}
+        
+        prompt = self._get_analysis_prompt(content_summary)
+        
+        response = requests.post(API_URL, headers=headers, json={"inputs": prompt})
+        result = response.json()
+        
+        try:
+            return json.loads(result[0]['generated_text'])
+        except:
+            return {"analysis": result[0]['generated_text']}
+    
+    def _get_analysis_prompt(self, content_summary: str) -> str:
+        """Get the analysis prompt for LLM."""
+        return f"""Analyze the following Reddit user data and create a detailed user persona.
 
 {content_summary}
 
@@ -66,19 +150,7 @@ Generate a comprehensive user persona including:
 6. Online behavior patterns
 7. Potential needs or pain points
 
-Format the response as a JSON object with these categories as keys."""
-
-        response = openai.ChatCompletion.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": "You are an expert at analyzing online behavior and creating detailed user personas."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7,
-            max_tokens=1500
-        )
-        
-        return json.loads(response.choices[0].message.content)
+Format the response as a JSON object with these categories as keys. If you cannot determine certain aspects, indicate "unknown" or "not apparent"."""
     
     def _add_citations(self, persona: Dict, user_data: Dict) -> Dict:
         """Add citations to persona characteristics."""
