@@ -148,4 +148,4 @@ This code is provided for the BeyondChats internship assignment evaluation only.
 🤝 Contributing
 This is an assignment project. For the production version, contributions would be welcome via pull requests.
 📧 Contact
-For questions about this assignment implementation, please contact [your-email@example.com]
+For questions about this assignment implementation, please contact [sritankar3239@gmail.com]
