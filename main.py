@@ -20,7 +20,7 @@ def main():
     # Validate URL
     if not validate_reddit_url(args.profile_url):
         print("Error: Invalid Reddit profile URL")
-        print("Expected format: https://www.reddit.com/user/username/")
+        print("Expected format: https://www.reddit.com/user/kojied/")
         sys.exit(1)
     
     try:
