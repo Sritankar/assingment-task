@@ -16,7 +16,8 @@ class PersonaGenerator:
             # Google's Gemini API (free tier available)
             import google.generativeai as genai
             genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
-            self.model = genai.GenerativeModel('gemini-pro')
+            # Updated model name - use gemini-1.5-flash for free tier
+            self.model = genai.GenerativeModel('gemini-1.5-flash')
         elif self.USE_GROQ:
             # Groq API (free tier available)
             from groq import Groq
